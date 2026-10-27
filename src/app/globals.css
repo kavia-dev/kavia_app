@@ -1,0 +1,21 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 0 0% 100%;  --surface: 0 0% 100%;
+  --border: 220 13% 91%;  --fg: 224 15% 12%;  --muted: 220 9% 46%;
+  --primary: 243 75% 59%;  --primary-fg: 0 0% 100%;  --accent: 243 60% 96%;
+}
+.dark {
+  --bg: 224 20% 8%;  --surface: 224 18% 11%;
+  --border: 223 15% 20%;  --fg: 210 20% 96%;  --muted: 218 11% 65%;
+  --primary: 243 85% 68%;  --primary-fg: 224 20% 8%;  --accent: 243 28% 18%;
+}
+@layer base {
+  * { @apply border-border; }
+  html { scroll-behavior: smooth; }
+  /* Tambahkan font-sans di sini */
+  body { @apply bg-bg text-fg font-sans antialiased; } 
+  ::selection { @apply bg-primary/20; }
+}
