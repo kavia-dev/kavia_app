@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { ArrowDownLeft, PiggyBank, Plus, Wallet, TrendingUp } from "lucide-react";
+import { ArrowDownLeft, PiggyBank, Plus, Wallet, TrendingUp, Pencil, Trash2 } from "lucide-react";
 import { Card, CardTitle, PageHeader, StatCard } from "@/components/ui/kit";
 import { Modal } from "@/components/ui/modal";
 import { createClient } from "@/lib/supabase";
@@ -18,6 +18,7 @@ export default function KeuanganPage() {
   
   // Modal State Dompet
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [editingWalletId, setEditingWalletId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [walletType, setWalletType] = useState<"Bank" | "E-Wallet" | "Tunai">("Bank");
   const [walletName, setWalletName] = useState("BCA");
@@ -36,7 +37,7 @@ export default function KeuanganPage() {
     if (!user) return;
     
     const [resWallets, resAssets] = await Promise.all([
-      supabase.from('wallets').select('*').eq('user_id', user.id),
+      supabase.from('wallets').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
       supabase.from('assets').select('*').eq('user_id', user.id)
     ]);
 
@@ -55,19 +56,48 @@ export default function KeuanganPage() {
   const totalAset = assets.reduce((s, a) => s + a.value, 0);
   const totalKekayaan = totalSaldo + totalAset;
 
-  const handleAddWallet = async (e: React.FormEvent) => {
+  // --- FUNGSI SIMPAN DOMPET (TAMBAH / EDIT) ---
+  const handleSaveWallet = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    await supabase.from('wallets').insert({
-      user_id: user.id, name: walletName === "Lainnya" ? "Lainnya" : walletName,
-      type: walletType, balance: parseInt(initialBalance) || 0
-    });
+    if (editingWalletId) {
+      // Mode Edit
+      await supabase.from('wallets').update({
+        name: walletName,
+        type: walletType,
+        balance: parseInt(initialBalance) || 0
+      }).eq('id', editingWalletId);
+    } else {
+      // Mode Tambah
+      await supabase.from('wallets').insert({
+        user_id: user.id, 
+        name: walletName === "Lainnya" ? "Lainnya" : walletName,
+        type: walletType, 
+        balance: parseInt(initialBalance) || 0
+      });
+    }
+    
     await fetchData();
-    setIsWalletModalOpen(false);
-    setInitialBalance("");
+    closeWalletModal();
+    setLoading(false);
+  };
+
+  // --- FUNGSI HAPUS DOMPET ---
+  const handleDeleteWallet = async (id: string, name: string) => {
+    if (!confirm(`Hapus dompet "${name}"? Pastikan tidak ada transaksi penting di dalamnya.`)) return;
+    
+    setLoading(true);
+    // Hapus dompet dari database
+    const { error } = await supabase.from('wallets').delete().eq('id', id);
+    
+    if (error) {
+      alert("Gagal menghapus dompet. Pastikan tidak ada transaksi yang terikat dengan dompet ini.");
+    } else {
+      await fetchData();
+    }
     setLoading(false);
   };
 
@@ -86,6 +116,28 @@ export default function KeuanganPage() {
     setLoading(false);
   };
 
+  // --- FUNGSI MODAL DOMPET ---
+  const openAddWallet = () => {
+    setEditingWalletId(null);
+    setWalletType("Bank");
+    setWalletName("BCA");
+    setInitialBalance("");
+    setIsWalletModalOpen(true);
+  };
+
+  const openEditWallet = (w: WalletType) => {
+    setEditingWalletId(w.id);
+    setWalletType(w.type as "Bank" | "E-Wallet" | "Tunai");
+    setWalletName(w.name);
+    setInitialBalance(w.balance.toString());
+    setIsWalletModalOpen(true);
+  };
+
+  const closeWalletModal = () => {
+    setIsWalletModalOpen(false);
+    setEditingWalletId(null);
+  };
+
   return (
     <>
       <PageHeader title="Keuangan & Aset" description="Pantau seluruh kekayaan dan investasimu." />
@@ -101,7 +153,9 @@ export default function KeuanganPage() {
         <Card>
           <div className="flex items-center justify-between mb-4">
             <CardTitle>Dompet & Rekening</CardTitle>
-            <button onClick={() => setIsWalletModalOpen(true)} className="text-[11px] font-medium text-primary hover:underline flex items-center gap-1"><Plus className="h-3 w-3"/> Tambah</button>
+            <button onClick={openAddWallet} className="text-[11px] font-medium text-primary hover:underline flex items-center gap-1">
+              <Plus className="h-3 w-3"/> Tambah
+            </button>
           </div>
           <ul className="space-y-3">
             {wallets.map((w) => (
@@ -110,7 +164,19 @@ export default function KeuanganPage() {
                   <p className="text-sm font-medium">{w.name}</p>
                   <p className="text-[11px] text-muted">{w.type}</p>
                 </div>
-                <span className="text-sm font-semibold">{rupiah(w.balance)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold">{rupiah(w.balance)}</span>
+                  
+                  {/* TOMBOL EDIT & HAPUS */}
+                  <div className="flex gap-1 ml-2 border-l border-border pl-2">
+                    <button onClick={() => openEditWallet(w)} className="p-1.5 text-muted hover:bg-accent hover:text-primary rounded-lg transition">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => handleDeleteWallet(w.id, w.name)} className="p-1.5 text-muted hover:bg-red-500/10 hover:text-red-600 rounded-lg transition">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
               </li>
             ))}
           </ul>
@@ -119,7 +185,9 @@ export default function KeuanganPage() {
         <Card>
           <div className="flex items-center justify-between mb-4">
             <CardTitle>Aset & Investasi</CardTitle>
-            <button onClick={() => setIsAssetModalOpen(true)} className="text-[11px] font-medium text-primary hover:underline flex items-center gap-1"><Plus className="h-3 w-3"/> Tambah</button>
+            <button onClick={() => setIsAssetModalOpen(true)} className="text-[11px] font-medium text-primary hover:underline flex items-center gap-1">
+              <Plus className="h-3 w-3"/> Tambah
+            </button>
           </div>
           <ul className="space-y-3">
             {assets.map((a) => (
@@ -136,25 +204,29 @@ export default function KeuanganPage() {
         </Card>
       </div>
 
-      <Modal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} title="Tambah Dompet">
-        <form onSubmit={handleAddWallet} className="space-y-4">
+      {/* MODAL DOMPET (TAMBAH / EDIT) */}
+      <Modal isOpen={isWalletModalOpen} onClose={closeWalletModal} title={editingWalletId ? "Edit Dompet" : "Tambah Dompet"}>
+        <form onSubmit={handleSaveWallet} className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {["Bank", "E-Wallet", "Tunai"].map((t) => (
               <button key={t} type="button" onClick={() => { setWalletType(t as "Bank" | "E-Wallet" | "Tunai"); setWalletName(t === "Bank" ? "BCA" : t === "E-Wallet" ? "GoPay" : "Dompet"); }} className={`rounded-xl border py-2 text-xs font-medium ${walletType === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted"}`}>{t}</button>
             ))}
           </div>
           <div>
-            <label className="text-xs font-medium text-muted">Nama</label>
+            <label className="text-xs font-medium text-muted">Nama Dompet/Rekening</label>
             <input type="text" value={walletName} onChange={(e) => setWalletName(e.target.value)} required className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm focus:outline-none" />
           </div>
           <div>
-            <label className="text-xs font-medium text-muted">Saldo Awal (Rp)</label>
+            <label className="text-xs font-medium text-muted">{editingWalletId ? "Saldo Saat Ini (Rp)" : "Saldo Awal (Rp)"}</label>
             <input type="number" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm focus:outline-none" />
           </div>
-          <button type="submit" disabled={loading} className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-fg">Simpan Dompet</button>
+          <button type="submit" disabled={loading} className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-fg disabled:opacity-50">
+            {loading ? "Menyimpan..." : editingWalletId ? "Simpan Perubahan" : "Tambah Dompet"}
+          </button>
         </form>
       </Modal>
 
+      {/* MODAL ASET */}
       <Modal isOpen={isAssetModalOpen} onClose={() => setIsAssetModalOpen(false)} title="Tambah Aset Investasi">
         <form onSubmit={handleAddAsset} className="space-y-4">
           <div>
@@ -165,7 +237,7 @@ export default function KeuanganPage() {
           </div>
           <div>
             <label className="text-xs font-medium text-muted">Nama Aset</label>
-            <input type="text" value={assetName} onChange={(e) => setAssetName(e.target.value)} required className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm focus:outline-none" placeholder="Cth: Saham BBCA, Bitcoin" />
+            <input type="text" value={assetName} onChange={(e) => setAssetName(e.target.value)} required className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm focus:outline-none" placeholder="Cth: Saham BBCA" />
           </div>
           <div>
             <label className="text-xs font-medium text-muted">Nilai Saat Ini (Rp)</label>
